@@ -18,7 +18,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final ApiService _apiService = ApiService();
   
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -58,7 +57,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
         'role': 'paciente', // Role padrão para novos usuários
       };
 
-      await _apiService.syncProfile(syncData);
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      await apiService.syncProfile(syncData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

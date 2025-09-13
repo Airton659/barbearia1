@@ -47,7 +47,7 @@ class AuthService with ChangeNotifier {
     _isSyncing = true;
     notifyListeners(); // Notifica que começou a sincronizar
     try {
-      final apiService = ApiService();
+      final apiService = ApiService(authService: this);
       
       // Tenta primeiro buscar o perfil existente
       try {
@@ -56,7 +56,6 @@ class AuthService with ChangeNotifier {
         _hasServerError = false;
       } catch (e) {
         // Se não conseguir buscar, tenta fazer sync
-        final negocioId = await getNegocioId();
         final syncData = {
           'nome': firebaseUser.displayName ?? firebaseUser.email ?? 'Usuário Sem Nome',
           'email': firebaseUser.email,
@@ -144,10 +143,7 @@ class AuthService with ChangeNotifier {
     await prefs.setString('negocioId', negocioId);
   }
 
-  Future<String?> getNegocioId() async {
-    const negocioId = "YXcwY5rHdXBNRm4BtsP1"; // ID do negócio da barbearia
-    return negocioId;
-  }
+  String get negocioId => "YXcwY5rHdXBNRm4BtsP1"; // ID do negócio da barbearia
 
   void updateCurrentUserData(Usuario updatedUser) {
     _currentUser = updatedUser;
@@ -165,7 +161,7 @@ class AuthService with ChangeNotifier {
       _isSyncing = true;
       try {
         // Usar getProfile diretamente para pegar dados atualizados do banco
-        final apiService = ApiService();
+        final apiService = ApiService(authService: this);
         final responseBody = await apiService.getProfile();
         
         if (responseBody != null) {

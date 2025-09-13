@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../utils/app_colors.dart';
 import 'dashboard_screen.dart';
 
@@ -13,7 +15,6 @@ class AdminSignUpScreen extends StatefulWidget {
 
 class _AdminSignUpScreenState extends State<AdminSignUpScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _apiService = ApiService();
   final _auth = FirebaseAuth.instance;
 
   final _nomeController = TextEditingController();
@@ -51,7 +52,8 @@ class _AdminSignUpScreenState extends State<AdminSignUpScreen> {
       // ===================================================================
       // CHAMADA CORRIGIDA PARA USAR PARÂMETROS NOMEADOS
       // ===================================================================
-      final usuario = await _apiService.validarCodigoConvite(
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      final usuario = await apiService.validarCodigoConvite(
         _codigoController.text.trim(),
         nome: _nomeController.text.trim(),
         email: _emailController.text.trim(),

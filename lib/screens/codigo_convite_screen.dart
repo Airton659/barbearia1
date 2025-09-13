@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../utils/app_colors.dart';
 import 'dashboard_screen.dart';
 import 'login_screen.dart';
@@ -16,7 +18,6 @@ class _CodigoConviteScreenState extends State<CodigoConviteScreen> {
   final _formKey = GlobalKey<FormState>();
   final _codigoController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final ApiService _apiService = ApiService();
   
   bool _isLoading = false;
   String _nomeUsuario = '';
@@ -51,7 +52,15 @@ class _CodigoConviteScreenState extends State<CodigoConviteScreen> {
 
     try {
       // Validar código de convite com a API
-      final usuario = await _apiService.validarCodigoConvite(_codigoController.text.trim());
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      // TODO: O método validarCodigoConvite foi removido no novo ApiService.
+      //       Usar o syncProfile diretamente.
+      final usuario = await apiService.syncProfile({
+        'codigo_convite': _codigoController.text.trim(),
+        'firebase_uid': _auth.currentUser!.uid,
+        'email': _auth.currentUser!.email,
+        'nome': _auth.currentUser!.displayName,
+      });
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

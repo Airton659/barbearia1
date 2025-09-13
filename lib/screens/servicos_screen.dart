@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/servico.dart';
 import '../utils/app_colors.dart';
 
@@ -11,7 +13,6 @@ class ServicosScreen extends StatefulWidget {
 }
 
 class _ServicosScreenState extends State<ServicosScreen> {
-  final ApiService _apiService = ApiService();
   List<Servico> _servicos = [];
   bool _isLoading = true;
 
@@ -25,7 +26,8 @@ class _ServicosScreenState extends State<ServicosScreen> {
     print('🔍 [SERVICOS] Iniciando carregamento...');
     setState(() { _isLoading = true; });
     try {
-      final servicos = await _apiService.getMeusServicos();
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      final servicos = await apiService.getMeusServicos();
       print('🔍 [SERVICOS] Sucesso: ${servicos.length} serviços carregados');
       setState(() {
         _servicos = servicos;
@@ -128,12 +130,13 @@ class _ServicosScreenState extends State<ServicosScreen> {
                 print('🔍 [SERVICOS] ${isEdit ? 'Atualizando' : 'Criando'} serviço...');
                 print('🔍 [SERVICOS] Dados: $servicoData');
 
+                final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
                 if (isEdit) {
                   print('🔍 [SERVICOS] ID do serviço: ${servico!.id}');
-                  await _apiService.updateServico(servico.id, servicoData);
+                  await apiService.updateServico(servico.id, servicoData);
                   print('🔍 [SERVICOS] Serviço atualizado com sucesso!');
                 } else {
-                  await _apiService.createServico(servicoData);
+                  await apiService.createServico(servicoData);
                   print('🔍 [SERVICOS] Serviço criado com sucesso!');
                 }
 
@@ -190,7 +193,8 @@ class _ServicosScreenState extends State<ServicosScreen> {
     if (confirm == true) {
       try {
         print('🔍 [SERVICOS] Excluindo serviço ID: ${servico.id}');
-        await _apiService.deleteServico(servico.id);
+        final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+        await apiService.deleteServico(servico.id);
         print('🔍 [SERVICOS] Serviço excluído com sucesso!');
         _carregarServicos();
         if (mounted) {

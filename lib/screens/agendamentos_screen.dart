@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/agendamento.dart';
 import '../utils/app_colors.dart';
 import 'package:intl/intl.dart';
@@ -12,7 +14,6 @@ class AgendamentosScreen extends StatefulWidget {
 }
 
 class _AgendamentosScreenState extends State<AgendamentosScreen> {
-  final ApiService _apiService = ApiService();
   List<Agendamento> _agendamentos = [];
   bool _isLoading = true;
   String _filtroStatus = 'todos';
@@ -27,7 +28,8 @@ class _AgendamentosScreenState extends State<AgendamentosScreen> {
     print('🔍 [AGENDAMENTOS] Iniciando carregamento...');
     setState(() { _isLoading = true; });
     try {
-      final agendamentos = await _apiService.getAgendamentosProfissional();
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      final agendamentos = await apiService.getAgendamentosProfissional();
       print('🔍 [AGENDAMENTOS] Sucesso: ${agendamentos.length} agendamentos carregados');
       setState(() {
         _agendamentos = agendamentos;
@@ -83,7 +85,8 @@ class _AgendamentosScreenState extends State<AgendamentosScreen> {
     if (confirm == true) {
       try {
         print('🔍 [AGENDAMENTOS] Cancelando agendamento ID: ${agendamento.id}');
-        await _apiService.cancelarAgendamentoProfissional(agendamento.id);
+        final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+        await apiService.cancelarAgendamentoProfissional(agendamento.id);
         print('🔍 [AGENDAMENTOS] Agendamento cancelado com sucesso!');
         _carregarAgendamentos();
         if (mounted) {

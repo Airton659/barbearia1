@@ -1,37 +1,104 @@
 import 'dart:convert';
-import 'dart:io';
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/usuario.dart';
 import '../models/servico.dart';
 import '../models/agendamento.dart';
-import '../models/horario_trabalho.dart';
+
+// Estrutura de cache com TTL
+class CacheEntry<T> {
+  final T data;
+  final DateTime timestamp;
+  final Duration ttl;
+
+  CacheEntry(this.data, this.ttl) : timestamp = DateTime.now();
+
+  bool get isExpired => DateTime.now().difference(timestamp) > ttl;
+}
+
+import 'auth_service.dart';
 
 class ApiService {
-  static const String baseUrl = "https://barbearia-backend-service-862082955632.southamerica-east1.run.app";
-  static const String negocioId = "YXcwY5rHdXBNRm4BtsP1";
+  static const String baseUrl = 'https://barbearia-backend-service-862082955632.southamerica-east1.run.app';
   
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final AuthService authService;
+
+  ApiService({required this.authService});
+
+  // Cache interno com TTL
+  final Map<String, CacheEntry> _cache = {};
+  final Duration _defaultTtl = const Duration(minutes: 5);
+
+  // Métodos de cache
+  String _getCacheKey(String endpoint, [Map<String, dynamic>? params]) {
+    final userId = authService.currentUser?.firebaseUid ?? 'anonymous';
+    final negocioId = authService.negocioId;
+    final paramString = params?.entries.map((e) => '${e.key}=${e.value}').join('&') ?? '';
+    return '${userId}_${negocioId}_${endpoint}_$paramString';
+  }
+
+  T? _getFromCache<T>(String cacheKey) {
+    final entry = _cache[cacheKey] as CacheEntry<T>?;
+    if (entry != null && !entry.isExpired) {
+      debugPrint('🔍 [CACHE] Hit: $cacheKey');
+      return entry.data;
+    }
+    if (entry != null && entry.isExpired) {
+      _cache.remove(cacheKey);
+      debugPrint('🔍 [CACHE] Expired: $cacheKey');
+    }
+    return null;
+  }
+
+  void _setCache<T>(String cacheKey, T data, {Duration? ttl}) {
+    _cache[cacheKey] = CacheEntry<T>(data, ttl ?? _defaultTtl);
+    debugPrint('🔍 [CACHE] Set: $cacheKey');
+  }
+
+  void clearCache([String? pattern]) {
+    if (pattern != null) {
+      final keysToRemove = _cache.keys.where((key) => key.contains(pattern)).toList();
+      for (final key in keysToRemove) {
+        _cache.remove(key);
+      }
+      debugPrint('🔍 [CACHE] Cleared pattern: $pattern');
+    } else {
+      _cache.clear();
+      debugPrint('🔍 [CACHE] Cleared all');
+    }
+  }
 
   Future<Map<String, String>> _getHeaders() async {
-    final user = _auth.currentUser;
-    if (user == null) throw Exception('Usuário não autenticado');
-    final token = await user.getIdToken();
-    return {
-      'Content-Type': 'application/json',
+    final token = await authService.getIdToken();
+    if (token == null) throw Exception('Usuário não autenticado ou token inválido');
+
+    final negocioId = authService.negocioId;
+
+    final headers = {
+      'Content-Type': 'application/json; charset=UTF-8',
       'Authorization': 'Bearer $token',
       'negocio-id': negocioId,
     };
+
+    debugPrint('🔍 [HEADERS] negocio-id: $negocioId');
+    return headers;
   }
 
-  Future<dynamic> _post(String endpoint, Map<String, dynamic> data) async {
-    final headers = await _getHeaders();
-    final response = await http.post(Uri.parse('$baseUrl$endpoint'), headers: headers, body: jsonEncode(data));
-    return _handleResponse(response);
+  dynamic _handleResponse(http.Response response) {
+    debugPrint('🔍 [API] ${response.request?.method} ${response.request?.url} - ${response.statusCode}');
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return {};
+      return jsonDecode(response.body);
+    } else {
+      final errorMessage = 'Erro na API: ${response.statusCode} - ${response.body}';
+      debugPrint('🔍 [API ERROR] $errorMessage');
+      throw Exception(errorMessage);
+    }
   }
-  
-  // Outros métodos genéricos (_get, _put, _delete...)
+
   Future<dynamic> _get(String endpoint, {Map<String, String>? queryParams}) async {
     final headers = await _getHeaders();
     
@@ -44,9 +111,23 @@ class ApiService {
     return _handleResponse(response);
   }
 
+  Future<dynamic> _post(String endpoint, Map<String, dynamic> data) async {
+    final headers = await _getHeaders();
+    final response = await http.post(
+      Uri.parse('$baseUrl$endpoint'),
+      headers: headers,
+      body: jsonEncode(data),
+    );
+    return _handleResponse(response);
+  }
+
   Future<dynamic> _put(String endpoint, Map<String, dynamic> data) async {
     final headers = await _getHeaders();
-    final response = await http.put(Uri.parse('$baseUrl$endpoint'), headers: headers, body: jsonEncode(data));
+    final response = await http.put(
+      Uri.parse('$baseUrl$endpoint'),
+      headers: headers,
+      body: jsonEncode(data),
+    );
     return _handleResponse(response);
   }
 
@@ -56,160 +137,313 @@ class ApiService {
     return _handleResponse(response);
   }
 
-  dynamic _handleResponse(http.Response response) {
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      if (response.body.isEmpty) return {};
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Erro na API: ${response.statusCode} - ${response.body}');
-    }
+  Future<dynamic> _patch(String endpoint, Map<String, dynamic> data) async {
+    final headers = await _getHeaders();
+    final response = await http.patch(
+      Uri.parse('$baseUrl$endpoint'),
+      headers: headers,
+      body: jsonEncode(data),
+    );
+    return _handleResponse(response);
   }
 
-  Future<Usuario> syncProfile(Map<String, dynamic> syncData) async {
-    final data = await _post('/users/sync-profile', syncData);
-    return Usuario.fromJson(data as Map<String, dynamic>);
+  // ==================== PERFIL E AUTENTICAÇÃO ====================
+
+  Future<Usuario> syncProfile(Map<String, dynamic> data) async {
+    debugPrint('🔍 [SYNC] Dados: ${data.keys.toList()}');
+    final response = await _post('/users/sync-profile', data);
+    return Usuario.fromJson(response as Map<String, dynamic>);
   }
 
-  // ===================================================================
-  // FUNÇÃO FINALMENTE CORRIGIDA
-  // ===================================================================
-  Future<Usuario> validarCodigoConvite(String codigo, {String? nome, String? email}) async {
-    final user = _auth.currentUser;
-    if (user == null) {
-      throw Exception("Usuário não está logado para sincronizar o perfil.");
+  Future<Usuario> getProfile() async {
+    final cacheKey = _getCacheKey('getProfile');
+
+    final cached = _getFromCache<Map<String, dynamic>>(cacheKey);
+    if (cached != null) {
+      return Usuario.fromJson(cached);
     }
 
-    final data = <String, dynamic>{
-      'codigo_convite': codigo,
-      'nome': nome ?? user.displayName ?? 'Usuário sem nome',
-      'email': email ?? user.email!,
-      'firebase_uid': user.uid,
-      // LINHA ADICIONADA PARA RESOLVER O ERRO 400
-      'negocio_id': negocioId, 
-    };
-
-    final result = await _post('/users/sync-profile', data);
-    return Usuario.fromJson(result as Map<String, dynamic>);
+    final data = await _get('/me/profile') as Map<String, dynamic>;
+    _setCache(cacheKey, data, ttl: const Duration(minutes: 10));
+    return Usuario.fromJson(data);
   }
 
   Future<bool> verificarNecessidadeCodigoConvite() async {
     try {
-      final data = await _get('/negocios/$negocioId/admin-status');
+      final data = await _get('/negocios/$negocioId/admin-status') as Map<String, dynamic>;
       return !(data['tem_admin'] ?? true);
     } catch (e) {
+      debugPrint('🔍 [CONVITE] Erro ao verificar: $e');
       return true;
     }
   }
 
-  Future<Usuario> getProfile() async {
-    final data = await _get('/me/profile') as Map<String, dynamic>;
-    return Usuario.fromJson(data);
-  }
+  // ==================== USUÁRIOS ====================
 
-  Future<List<Usuario>> getProfissionais() async {
-    final data = await _get('/profissionais', queryParams: {'negocio_id': negocioId});
+  Future<List<Usuario>> getTodosUsuarios({bool forceRefresh = false}) async {
+    final cacheKey = _getCacheKey('getTodosUsuarios');
     
-    // A API pode retornar uma lista diretamente ou um objeto com 'profissionais'
-    if (data is List) {
-      return (data as List).map((json) => Usuario.fromJson(json as Map<String, dynamic>)).toList();
-    } else if (data is Map && data.containsKey('profissionais')) {
-      return (data['profissionais'] as List).map((json) => Usuario.fromJson(json as Map<String, dynamic>)).toList();
-    } else {
-      throw Exception('Formato de resposta inesperado da API');
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<Map<String, dynamic>>>(cacheKey);
+      if (cached != null) {
+        return cached.map((json) => Usuario.fromJson(json)).toList();
+      }
     }
-  }
 
-  // Novo método para buscar TODOS os usuários do negócio (não só profissionais)
-  Future<List<Usuario>> getTodosUsuarios() async {
     try {
       // Primeiro tenta endpoint para todos os usuários
+      debugPrint('🔍 [USUARIOS] Tentando /negocios/$negocioId/usuarios');
       final data = await _get('/negocios/$negocioId/usuarios');
       
+      List<Map<String, dynamic>> usuarios;
       if (data is List) {
-        return (data as List).map((json) => Usuario.fromJson(json as Map<String, dynamic>)).toList();
+        usuarios = data.cast<Map<String, dynamic>>();
       } else if (data is Map && data.containsKey('usuarios')) {
-        return (data['usuarios'] as List).map((json) => Usuario.fromJson(json as Map<String, dynamic>)).toList();
+        usuarios = (data['usuarios'] as List).cast<Map<String, dynamic>>();
       } else {
-        // Se não funcionar, usa o endpoint de profissionais como fallback
-        return await getProfissionais();
+        usuarios = [];
       }
+
+      _setCache(cacheKey, usuarios, ttl: const Duration(minutes: 5));
+      debugPrint('🔍 [USUARIOS] Sucesso: ${usuarios.length} usuários em /negocios/$negocioId/usuarios');
+      return usuarios.map((json) => Usuario.fromJson(json)).toList();
+
     } catch (e) {
-      // Fallback para profissionais se der erro
-      print('🔍 [USUARIOS] Endpoint /negocios/$negocioId/usuarios falhou, tentando /profissionais...');
+      debugPrint('🔍 [USUARIOS] Fallback para /profissionais - Erro: $e');
       return await getProfissionais();
     }
   }
-  
+
+  Future<List<Usuario>> getProfissionais({bool forceRefresh = false}) async {
+    final cacheKey = _getCacheKey('getProfissionais');
+
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<Map<String, dynamic>>>(cacheKey);
+      if (cached != null) {
+        return cached.map((json) => Usuario.fromJson(json)).toList();
+      }
+    }
+
+    debugPrint('🔍 [PROFISSIONAIS] Tentando /profissionais?negocio_id=$negocioId');
+    final data = await _get('/profissionais', queryParams: {'negocio_id': negocioId});
+
+    List<Map<String, dynamic>> profissionais;
+    if (data is List) {
+      profissionais = data.cast<Map<String, dynamic>>();
+    } else if (data is Map && data.containsKey('profissionais')) {
+      profissionais = (data['profissionais'] as List).cast<Map<String, dynamic>>();
+    } else {
+      profissionais = [];
+    }
+
+    _setCache(cacheKey, profissionais, ttl: const Duration(minutes: 5));
+    debugPrint('🔍 [PROFISSIONAIS] Sucesso: ${profissionais.length} profissionais');
+    return profissionais.map((json) => Usuario.fromJson(json)).toList();
+  }
+
   Future<Usuario> adminCreateUser(Map<String, dynamic> userData) async {
+    debugPrint('🔍 [CREATE_USER] Dados: ${userData.keys.toList()}');
     final data = await _post('/negocios/$negocioId/pacientes', userData);
-    return Usuario.fromJson(data);
+    clearCache('getTodosUsuarios');
+    clearCache('getProfissionais');
+    return Usuario.fromJson(data as Map<String, dynamic>);
   }
 
-  // O resto do seu arquivo continua aqui...
-  Future<Usuario> getProfissional(String id) async {
-    final data = await _get('/profissionais/$id');
-    return Usuario.fromJson(data);
+  Future<void> updateUserRole(String userId, String newRole) async {
+    final negocioId = authService.negocioId;
+    await _patch('/negocios/$negocioId/usuarios/$userId/role', {'role': newRole});
+    clearCache('getTodosUsuarios');
   }
 
-  Future<Usuario> updateProfissionalProfile(Map<String, dynamic> profileData) async {
-    final data = await _put('/me/profissional', profileData);
-    return Usuario.fromJson(data);
-  }
+  // ==================== SERVIÇOS ====================
 
-  Future<List<Servico>> getServicos() async {
-    final data = await _get('/servicos');
-    return (data['servicos'] as List).map((json) => Servico.fromJson(json)).toList();
-  }
+  Future<List<Servico>> getMeusServicos({bool forceRefresh = false}) async {
+    final cacheKey = _getCacheKey('getMeusServicos');
 
-  Future<List<Servico>> getMeusServicos() async {
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<Map<String, dynamic>>>(cacheKey);
+      if (cached != null) {
+        return cached.map((json) => Servico.fromJson(json)).toList();
+      }
+    }
+
     try {
       // Primeiro tenta endpoint específico do profissional
+      debugPrint('🔍 [SERVICOS] Tentando /me/servicos');
       final data = await _get('/me/servicos');
       
+      List<Map<String, dynamic>> servicos;
       if (data is List) {
-        return (data as List).map((json) => Servico.fromJson(json as Map<String, dynamic>)).toList();
+        servicos = data.cast<Map<String, dynamic>>();
       } else if (data is Map && data.containsKey('servicos')) {
-        return (data['servicos'] as List).map((json) => Servico.fromJson(json as Map<String, dynamic>)).toList();
+        servicos = (data['servicos'] as List).cast<Map<String, dynamic>>();
       } else {
-        return [];
+        servicos = [];
       }
+
+      _setCache(cacheKey, servicos, ttl: const Duration(minutes: 5));
+      debugPrint('🔍 [SERVICOS] Sucesso: ${servicos.length} serviços em /me/servicos');
+      return servicos.map((json) => Servico.fromJson(json)).toList();
+
     } catch (e) {
-      if (e.toString().contains('404')) {
-        // Se der 404, tenta endpoint administrativo por negócio
-        try {
-          final data = await _get('/negocios/$negocioId/servicos');
-          
-          if (data is List) {
-            return (data as List).map((json) => Servico.fromJson(json as Map<String, dynamic>)).toList();
-          } else if (data is Map && data.containsKey('servicos')) {
-            return (data['servicos'] as List).map((json) => Servico.fromJson(json as Map<String, dynamic>)).toList();
-          } else {
-            return [];
-          }
-        } catch (e2) {
-          // Se ambos falharem, retorna lista vazia
-          print('🔍 [SERVICOS] Ambos endpoints falharam: /me/servicos e /negocios/$negocioId/servicos');
-          return [];
+      debugPrint('🔍 [SERVICOS] Erro em /me/servicos: $e');
+
+      try {
+        // Fallback para endpoint administrativo
+        debugPrint('🔍 [SERVICOS] Tentando /negocios/$negocioId/servicos');
+        final data = await _get('/negocios/$negocioId/servicos');
+
+        List<Map<String, dynamic>> servicos;
+        if (data is List) {
+          servicos = data.cast<Map<String, dynamic>>();
+        } else if (data is Map && data.containsKey('servicos')) {
+          servicos = (data['servicos'] as List).cast<Map<String, dynamic>>();
+        } else {
+          servicos = [];
         }
-      } else {
-        rethrow;
+
+        _setCache(cacheKey, servicos, ttl: const Duration(minutes: 5));
+        debugPrint('🔍 [SERVICOS] Sucesso: ${servicos.length} serviços em /negocios/$negocioId/servicos');
+        return servicos.map((json) => Servico.fromJson(json)).toList();
+
+      } catch (e2) {
+        debugPrint('🔍 [SERVICOS] Ambos endpoints falharam: /me/servicos e /negocios/$negocioId/servicos');
+        return [];
       }
     }
   }
 
   Future<Servico> createServico(Map<String, dynamic> servicoData) async {
+    debugPrint('🔍 [CREATE_SERVICO] Dados: $servicoData');
     final data = await _post('/me/servicos', servicoData);
-    return Servico.fromJson(data);
+    clearCache('getMeusServicos');
+    return Servico.fromJson(data as Map<String, dynamic>);
   }
 
   Future<Servico> updateServico(String servicoId, Map<String, dynamic> servicoData) async {
+    debugPrint('🔍 [UPDATE_SERVICO] ID: $servicoId, Dados: $servicoData');
     final data = await _put('/me/servicos/$servicoId', servicoData);
-    return Servico.fromJson(data);
+    clearCache('getMeusServicos');
+    return Servico.fromJson(data as Map<String, dynamic>);
   }
 
   Future<void> deleteServico(String servicoId) async {
+    debugPrint('🔍 [DELETE_SERVICO] ID: $servicoId');
     await _delete('/me/servicos/$servicoId');
+    clearCache('getMeusServicos');
   }
+
+  // ==================== AGENDAMENTOS ====================
+
+  Future<List<Agendamento>> getAgendamentosProfissional({bool forceRefresh = false}) async {
+    final cacheKey = _getCacheKey('getAgendamentosProfissional');
+
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<Map<String, dynamic>>>(cacheKey);
+      if (cached != null) {
+        return cached.map((json) => Agendamento.fromJson(json)).toList();
+      }
+    }
+
+    try {
+      // Primeiro tenta endpoint específico do profissional
+      debugPrint('🔍 [AGENDAMENTOS] Tentando /me/agendamentos');
+      final data = await _get('/me/agendamentos');
+      
+      List<Map<String, dynamic>> agendamentos;
+      if (data is List) {
+        agendamentos = data.cast<Map<String, dynamic>>();
+      } else if (data is Map && data.containsKey('agendamentos')) {
+        agendamentos = (data['agendamentos'] as List).cast<Map<String, dynamic>>();
+      } else {
+        agendamentos = [];
+      }
+
+      _setCache(cacheKey, agendamentos, ttl: const Duration(minutes: 5));
+      debugPrint('🔍 [AGENDAMENTOS] Sucesso: ${agendamentos.length} agendamentos em /me/agendamentos');
+      return agendamentos.map((json) => Agendamento.fromJson(json)).toList();
+
+    } catch (e) {
+      debugPrint('🔍 [AGENDAMENTOS] Erro em /me/agendamentos: $e');
+
+      try {
+        // Fallback para endpoint administrativo
+        debugPrint('🔍 [AGENDAMENTOS] Tentando /negocios/$negocioId/agendamentos');
+        final data = await _get('/negocios/$negocioId/agendamentos');
+
+        List<Map<String, dynamic>> agendamentos;
+        if (data is List) {
+          agendamentos = data.cast<Map<String, dynamic>>();
+        } else if (data is Map && data.containsKey('agendamentos')) {
+          agendamentos = (data['agendamentos'] as List).cast<Map<String, dynamic>>();
+        } else {
+          agendamentos = [];
+        }
+
+        _setCache(cacheKey, agendamentos, ttl: const Duration(minutes: 5));
+        debugPrint('🔍 [AGENDAMENTOS] Sucesso: ${agendamentos.length} agendamentos em /negocios/$negocioId/agendamentos');
+        return agendamentos.map((json) => Agendamento.fromJson(json)).toList();
+
+      } catch (e2) {
+        debugPrint('🔍 [AGENDAMENTOS] Ambos endpoints falharam: /me/agendamentos e /negocios/$negocioId/agendamentos');
+        return [];
+      }
+    }
+  }
+
+  Future<void> cancelarAgendamentoProfissional(String agendamentoId) async {
+    debugPrint('🔍 [CANCEL_AGENDAMENTO] ID: $agendamentoId');
+    await _delete('/agendamentos/$agendamentoId');
+    clearCache('getAgendamentosProfissional');
+  }
+
+  // ==================== AGENDAMENTOS CLIENTE ====================
+
+  Future<List<Agendamento>> getAgendamentosCliente({bool forceRefresh = false}) async {
+    final cacheKey = _getCacheKey('getAgendamentosCliente');
+
+    if (!forceRefresh) {
+      final cached = _getFromCache<List<Map<String, dynamic>>>(cacheKey);
+      if (cached != null) {
+        return cached.map((json) => Agendamento.fromJson(json)).toList();
+      }
+    }
+
+    debugPrint('🔍 [AGENDAMENTOS_CLIENTE] Tentando /agendamentos/me');
+    final data = await _get('/agendamentos/me');
+
+    List<Map<String, dynamic>> agendamentos;
+    if (data is List) {
+      agendamentos = data.cast<Map<String, dynamic>>();
+    } else if (data is Map && data.containsKey('agendamentos')) {
+      agendamentos = (data['agendamentos'] as List).cast<Map<String, dynamic>>();
+    } else {
+      agendamentos = [];
+    }
+
+    _setCache(cacheKey, agendamentos, ttl: const Duration(minutes: 5));
+    debugPrint('🔍 [AGENDAMENTOS_CLIENTE] Sucesso: ${agendamentos.length} agendamentos');
+    return agendamentos.map((json) => Agendamento.fromJson(json)).toList();
+  }
+
+  Future<Agendamento> criarAgendamento(Map<String, dynamic> agendamentoData) async {
+    debugPrint('🔍 [CREATE_AGENDAMENTO] Dados: $agendamentoData');
+    final data = await _post('/agendamentos', agendamentoData);
+    clearCache('getAgendamentosCliente');
+    clearCache('getAgendamentosProfissional');
+    return Agendamento.fromJson(data as Map<String, dynamic>);
+  }
+
+  Future<void> cancelarAgendamento(String agendamentoId) async {
+    debugPrint('🔍 [CANCEL_AGENDAMENTO_CLIENTE] ID: $agendamentoId');
+    await _delete('/agendamentos/$agendamentoId');
+    clearCache('getAgendamentosCliente');
+    clearCache('getAgendamentosProfissional');
+  }
+
+  // ==================== HORÁRIOS DE TRABALHO ====================
+
+import '../models/horario_trabalho.dart';
 
   Future<List<HorarioTrabalho>> getHorariosTrabalho() async {
     final data = await _get('/me/horarios-trabalho');
@@ -223,82 +457,22 @@ class ApiService {
 
   Future<List<DateTime>> getHorariosDisponiveis(String profissionalId, String servicoId, DateTime data) async {
     final dataFormatada = data.toIso8601String().split('T')[0];
-    final endpoint = '/profissionais/$profissionalId/horarios-disponiveis?servico_id=$servicoId&data=$dataFormatada';
-    final response = await _get(endpoint);
-    return (response['horarios_disponiveis'] as List)
+    final cacheKey = _getCacheKey('getHorariosDisponiveis', {'profissionalId': profissionalId, 'servicoId': servicoId, 'data': dataFormatada});
+
+    final cached = _getFromCache<List<DateTime>>(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
+    debugPrint('🔍 [HORARIOS] Tentando /profissionais/$profissionalId/horarios-disponiveis?servico_id=$servicoId&data=$dataFormatada');
+    final response = await _get('/profissionais/$profissionalId/horarios-disponiveis', queryParams: {'servico_id': servicoId, 'data': dataFormatada});
+
+    final horarios = (response['horarios_disponiveis'] as List)
         .map((horario) => DateTime.parse(horario))
         .toList();
-  }
 
-  Future<Agendamento> createAgendamento(Map<String, dynamic> agendamentoData) async {
-    final data = await _post('/agendamentos', agendamentoData);
-    return Agendamento.fromJson(data);
-  }
-
-  Future<List<Agendamento>> getMeusAgendamentos() async {
-    final data = await _get('/agendamentos/me');
-    return (data['agendamentos'] as List).map((json) => Agendamento.fromJson(json)).toList();
-  }
-
-  Future<List<Agendamento>> getAgendamentosProfissional() async {
-    try {
-      // Primeiro tenta endpoint específico do profissional
-      final data = await _get('/me/agendamentos');
-      
-      if (data is List) {
-        return (data as List).map((json) => Agendamento.fromJson(json as Map<String, dynamic>)).toList();
-      } else if (data is Map && data.containsKey('agendamentos')) {
-        return (data['agendamentos'] as List).map((json) => Agendamento.fromJson(json as Map<String, dynamic>)).toList();
-      } else {
-        return [];
-      }
-    } catch (e) {
-      if (e.toString().contains('404')) {
-        // Se der 404, tenta endpoint administrativo por negócio
-        try {
-          final data = await _get('/negocios/$negocioId/agendamentos');
-          
-          if (data is List) {
-            return (data as List).map((json) => Agendamento.fromJson(json as Map<String, dynamic>)).toList();
-          } else if (data is Map && data.containsKey('agendamentos')) {
-            return (data['agendamentos'] as List).map((json) => Agendamento.fromJson(json as Map<String, dynamic>)).toList();
-          } else {
-            return [];
-          }
-        } catch (e2) {
-          // Se ambos falharem, retorna lista vazia
-          print('🔍 [AGENDAMENTOS] Ambos endpoints falharam: /me/agendamentos e /negocios/$negocioId/agendamentos');
-          return [];
-        }
-      } else {
-        rethrow;
-      }
-    }
-  }
-
-  Future<void> cancelarAgendamento(String agendamentoId) async {
-    await _delete('/agendamentos/$agendamentoId');
-  }
-
-  Future<void> cancelarAgendamentoProfissional(String agendamentoId) async {
-    await _post('/me/agendamentos/$agendamentoId/cancelar', {});
-  }
-
-  Future<String> uploadFoto(File imageFile) async {
-    final user = _auth.currentUser;
-    if (user == null) throw Exception('Usuário não autenticado');
-    final token = await user.getIdToken();
-    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload-foto'));
-    request.headers['Authorization'] = 'Bearer $token';
-    request.headers['negocio-id'] = negocioId;
-    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-    var response = await request.send();
-    var responseData = await response.stream.transform(utf8.decoder).join();
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      final data = jsonDecode(responseData);
-      return data['foto_url'];
-    } else {
-      throw Exception('Erro ao fazer upload: $responseData');
-    }
+    _setCache(cacheKey, horarios, ttl: const Duration(minutes: 2));
+    debugPrint('🔍 [HORARIOS] Sucesso: ${horarios.length} horários disponíveis');
+    return horarios;
   }
 }

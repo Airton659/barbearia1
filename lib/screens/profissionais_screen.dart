@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/usuario.dart';
 import '../utils/app_colors.dart';
 import 'user_create_screen.dart'; // IMPORTA A NOVA TELA
+import 'horarios_trabalho_screen.dart';
 
 class ProfissionaisScreen extends StatefulWidget {
   const ProfissionaisScreen({super.key});
@@ -12,7 +15,6 @@ class ProfissionaisScreen extends StatefulWidget {
 }
 
 class _ProfissionaisScreenState extends State<ProfissionaisScreen> {
-  final ApiService _apiService = ApiService();
   List<Usuario> _usuarios = []; // Mudou de _profissionais para _usuarios
   bool _isLoading = true;
 
@@ -26,7 +28,8 @@ class _ProfissionaisScreenState extends State<ProfissionaisScreen> {
     print('🔍 [USUARIOS] Iniciando carregamento...');
     setState(() { _isLoading = true; });
     try {
-      final usuarios = await _apiService.getTodosUsuarios();
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      final usuarios = await apiService.getTodosUsuarios();
       print('🔍 [USUARIOS] Sucesso: ${usuarios.length} usuários carregados');
       setState(() {
         _usuarios = usuarios;
@@ -175,9 +178,7 @@ class _ProfissionaisScreenState extends State<ProfissionaisScreen> {
                               onSelected: (value) {
                                 switch (value) {
                                   case 'edit':
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Edição em desenvolvimento')),
-                                    );
+                                    _showEditUserDialog(usuario);
                                     break;
                                   case 'services':
                                     ScaffoldMessenger.of(context).showSnackBar(
@@ -185,8 +186,10 @@ class _ProfissionaisScreenState extends State<ProfissionaisScreen> {
                                     );
                                     break;
                                   case 'schedule':
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Gestão de horários em desenvolvimento')),
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (context) => const HorariosTrabalhoScreen(),
+                                      ),
                                     );
                                     break;
                                   case 'activate':
@@ -261,5 +264,79 @@ class _ProfissionaisScreenState extends State<ProfissionaisScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showEditUserDialog(Usuario usuario) async {
+    String selectedRole = usuario.role;
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Editar Usuário'),
+          content: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              return Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Editando perfil de ${usuario.nome}'),
+                    const SizedBox(height: 24),
+                    DropdownButtonFormField<String>(
+                      value: selectedRole,
+                      decoration: const InputDecoration(
+                        labelText: 'Função',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'cliente', child: Text('Cliente')),
+                        DropdownMenuItem(value: 'profissional', child: Text('Profissional')),
+                        DropdownMenuItem(value: 'admin', child: Text('Admin')),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            selectedRole = value;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  try {
+                    final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+                    await apiService.updateUserRole(usuario.id, selectedRole);
+                    Navigator.of(context).pop(true);
+                  } catch (e) {
+                    Navigator.of(context).pop(false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Erro ao atualizar função: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('Salvar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result == true) {
+      _carregarUsuarios();
+    }
   }
 }
