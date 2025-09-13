@@ -1,8 +1,10 @@
 // lib/screens/user_create_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/usuario.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../utils/app_colors.dart';
 
 class UserCreateScreen extends StatefulWidget {
@@ -14,7 +16,6 @@ class UserCreateScreen extends StatefulWidget {
 
 class _UserCreateScreenState extends State<UserCreateScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _apiService = ApiService();
 
   final _nomeController = TextEditingController();
   final _emailController = TextEditingController();
@@ -48,7 +49,8 @@ class _UserCreateScreenState extends State<UserCreateScreen> {
       };
       
       // Chamando a nova função na API
-      await _apiService.adminCreateUser(userData);
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      await apiService.adminCreateUser(userData);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

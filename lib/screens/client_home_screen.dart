@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/servico.dart';
 import '../models/usuario.dart';
 import '../models/agendamento.dart';
@@ -17,7 +19,6 @@ class ClientHomeScreen extends StatefulWidget {
 
 class _ClientHomeScreenState extends State<ClientHomeScreen> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final ApiService _apiService = ApiService();
   
   List<Servico> _servicos = [];
   List<Usuario> _profissionais = [];
@@ -33,11 +34,14 @@ class _ClientHomeScreenState extends State<ClientHomeScreen> {
 
   Future<void> _carregarDados() async {
     try {
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      // TODO: getServicos e getMeusAgendamentos não existem mais no novo ApiService.
+      //       Usar getMeusServicos e getAgendamentosCliente
       final futures = await Future.wait([
-        _apiService.getProfile(),
-        _apiService.getServicos(),
-        _apiService.getProfissionais(),
-        _apiService.getMeusAgendamentos(),
+        apiService.getProfile(),
+        apiService.getMeusServicos(),
+        apiService.getProfissionais(),
+        apiService.getAgendamentosCliente(),
       ]);
 
       setState(() {

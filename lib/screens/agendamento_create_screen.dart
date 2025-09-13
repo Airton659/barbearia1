@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../models/servico.dart';
 import '../models/usuario.dart';
 import '../utils/app_colors.dart';
@@ -20,7 +22,6 @@ class AgendamentoCreateScreen extends StatefulWidget {
 }
 
 class _AgendamentoCreateScreenState extends State<AgendamentoCreateScreen> {
-  final ApiService _apiService = ApiService();
   final _observacoesController = TextEditingController();
 
   Usuario? _profissionalSelecionado;
@@ -70,7 +71,8 @@ class _AgendamentoCreateScreenState extends State<AgendamentoCreateScreen> {
     });
 
     try {
-      final horarios = await _apiService.getHorariosDisponiveis(
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      final horarios = await apiService.getHorariosDisponiveis(
         _profissionalSelecionado!.id,
         widget.servico.id,
         _dataSelecionada!,
@@ -107,7 +109,8 @@ class _AgendamentoCreateScreenState extends State<AgendamentoCreateScreen> {
     });
 
     try {
-      await _apiService.createAgendamento({
+      final apiService = ApiService(authService: Provider.of<AuthService>(context, listen: false));
+      await apiService.createAgendamento({
         'profissional_id': _profissionalSelecionado!.id,
         'servico_id': widget.servico.id,
         'data_hora': _horarioSelecionado!.toIso8601String(),
