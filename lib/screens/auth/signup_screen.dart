@@ -40,8 +40,8 @@ class _SignupScreenState extends State<SignupScreen> {
         nome: _nameController.text.trim(),
       );
 
-      if (mounted && authService.isLoggedIn) {
-        _navigateToHomeScreen(authService.currentUser!.roleForCurrentBusiness);
+      if (mounted) {
+        _showEmailVerificationDialog();
       }
     } catch (e) {
       if (mounted) {
@@ -69,6 +69,44 @@ class _SignupScreenState extends State<SignupScreen> {
     }
 
     Navigator.of(context).pushReplacementNamed(route);
+  }
+
+  void _showEmailVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Conta Criada!'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.check_circle,
+              size: 64,
+              color: Colors.green,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Sua conta foi criada com sucesso! Enviamos um email de verificação. Por favor, verifique seu email e clique no link de confirmação antes de fazer login.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop(); // Fecha o dialog
+              Navigator.of(context).pop(); // Volta para a tela de login
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.brown,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

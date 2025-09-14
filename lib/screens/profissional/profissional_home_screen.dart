@@ -1720,6 +1720,8 @@ class _ProfissionalHomeScreenState extends State<ProfissionalHomeScreen> {
     );
   }
 
+  //... (início do arquivo lib/screens/profissional/profissional_home_screen.dart)
+
   void _mostrarSobre() {
     showDialog(
       context: context,
@@ -1729,24 +1731,11 @@ class _ProfissionalHomeScreenState extends State<ProfissionalHomeScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Logo/Ícone da empresa
-            Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                color: Colors.brown.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.brown, width: 2),
-              ),
-              child: const Center(
-                child: Text(
-                  'YGG',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.brown,
-                  ),
-                ),
-              ),
+            // MODIFICADO: Substituído o container pelo seu ícone
+            Image.asset(
+              'assets/images/ygg_icon.png',
+              width: 100,
+              height: 100,
             ),
             const SizedBox(height: 16),
 

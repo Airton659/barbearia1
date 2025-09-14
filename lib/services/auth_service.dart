@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/usuario.dart';
 import '../utils/app_constants.dart';
 import 'api_service.dart';
@@ -9,6 +10,7 @@ import 'api_service.dart';
 class AuthService extends ChangeNotifier {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ApiService _apiService = ApiService();
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   Usuario? _currentUser;
   bool _isLoading = false;
@@ -135,7 +137,12 @@ class AuthService extends ChangeNotifier {
 
       if (credential.user != null) {
         await credential.user!.updateDisplayName(nome);
-        await _syncUserProfile(credential.user!);
+
+        // Enviar email de verificação
+        await credential.user!.sendEmailVerification();
+
+        // Fazer logout para forçar verificação de email
+        await _auth.signOut();
       }
 
       return credential;
@@ -161,6 +168,15 @@ class AuthService extends ChangeNotifier {
         password: password,
       );
 
+      // Verificar se o email foi verificado
+      if (credential.user != null && !credential.user!.emailVerified) {
+        await _auth.signOut();
+        throw FirebaseAuthException(
+          code: 'email-not-verified',
+          message: 'Por favor, verifique seu email antes de fazer login.',
+        );
+      }
+
       return credential;
     } catch (e) {
       debugPrint('Erro no login: $e');
@@ -168,6 +184,45 @@ class AuthService extends ChangeNotifier {
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        return null; // O usuário cancelou
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final userCredential = await _auth.signInWithCredential(credential);
+
+      if (userCredential.user != null) {
+        await _syncUserProfile(userCredential.user!);
+      }
+
+      return userCredential;
+    } catch (e) {
+      debugPrint('Erro no login com Google: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> resendEmailVerification() async {
+    final user = _auth.currentUser;
+    if (user != null && !user.emailVerified) {
+      await user.sendEmailVerification();
     }
   }
 
@@ -179,6 +234,13 @@ class AuthService extends ChangeNotifier {
       // Limpar dados primeiro
       _currentUser = null;
       await _clearLocalStorage();
+
+      // Tentar logout do Google se estiver conectado (pode falhar se não estiver configurado)
+      try {
+        await _googleSignIn.signOut();
+      } catch (googleSignOutError) {
+        debugPrint('Erro no logout do Google (ignorando): $googleSignOutError');
+      }
 
       // Depois fazer logout do Firebase
       await _auth.signOut();
@@ -257,6 +319,8 @@ class AuthService extends ChangeNotifier {
           return 'Muitas tentativas. Tente novamente mais tarde.';
         case 'requires-recent-login':
           return 'Esta operação requer autenticação recente. Faça login novamente.';
+        case 'email-not-verified':
+          return 'Por favor, verifique seu email antes de fazer login.';
         default:
           return 'Erro de autenticação: ${error.message}';
       }

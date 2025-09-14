@@ -18,7 +18,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _checkAuthStatus() async {
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 3)); // Aumentei para 3s para a marca aparecer bem
 
     if (!mounted) return;
 
@@ -51,17 +51,18 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Theme.of(context).primaryColor,
-      body: const Center(
+      body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
+            const Spacer(),
+            const Icon(
               Icons.cut,
               size: 80,
               color: Colors.white,
             ),
-            SizedBox(height: 20),
-            Text(
+            const SizedBox(height: 20),
+            const Text(
               'Barbearia',
               style: TextStyle(
                 fontSize: 32,
@@ -69,9 +70,32 @@ class _SplashScreenState extends State<SplashScreen> {
                 color: Colors.white,
               ),
             ),
-            SizedBox(height: 40),
-            CircularProgressIndicator(
+            const SizedBox(height: 40),
+            const CircularProgressIndicator(
               valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+            const Spacer(),
+            // ADICIONADO: Marca da sua empresa
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.asset(
+                    'assets/images/ygg_icon.png',
+                    height: 40,
+                    width: 40,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Powered by Ygg',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

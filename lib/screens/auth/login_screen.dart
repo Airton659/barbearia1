@@ -35,9 +35,30 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     } catch (e) {
       if (mounted) {
+        if (e.toString().contains('email-not-verified')) {
+          _showEmailVerificationDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(authService.getAuthErrorMessage(e) ?? 'Erro ao fazer login'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    final authService = Provider.of<AuthService>(context, listen: false);
+
+    try {
+      await authService.signInWithGoogle();
+    } catch (e) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(authService.getAuthErrorMessage(e) ?? 'Erro ao fazer login'),
+            content: Text(authService.getAuthErrorMessage(e) ?? 'Erro ao fazer login com Google'),
             backgroundColor: Colors.red,
           ),
         );
@@ -76,106 +97,206 @@ class _LoginScreenState extends State<LoginScreen> {
                 });
               }
 
-              return Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Icon(
-                      Icons.cut,
-                      size: 80,
-                      color: Colors.brown,
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Barbearia',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.brown,
-                      ),
-                    ),
-                    const SizedBox(height: 40),
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(Icons.email),
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Digite seu email';
-                        }
-                        if (!value.contains('@')) {
-                          return 'Digite um email válido';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: _obscurePassword,
-                      decoration: InputDecoration(
-                        labelText: 'Senha',
-                        prefixIcon: const Icon(Icons.lock),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            _obscurePassword ? Icons.visibility : Icons.visibility_off,
+              return Column(
+                children: [
+                  Expanded(
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Icon(
+                            Icons.cut,
+                            size: 80,
+                            color: Colors.brown,
                           ),
-                          onPressed: () {
-                            setState(() {
-                              _obscurePassword = !_obscurePassword;
-                            });
-                          },
-                        ),
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Digite sua senha';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: authService.isLoading ? null : _login,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.brown,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: authService.isLoading
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text(
-                              'Entrar',
-                              style: TextStyle(fontSize: 16),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Barbearia',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.brown,
                             ),
+                          ),
+                          const SizedBox(height: 40),
+                          TextFormField(
+                            controller: _emailController,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              prefixIcon: Icon(Icons.email),
+                              border: OutlineInputBorder(),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Digite seu email';
+                              }
+                              if (!value.contains('@')) {
+                                return 'Digite um email válido';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passwordController,
+                            obscureText: _obscurePassword,
+                            decoration: InputDecoration(
+                              labelText: 'Senha',
+                              prefixIcon: const Icon(Icons.lock),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _obscurePassword = !_obscurePassword;
+                                  });
+                                },
+                              ),
+                              border: const OutlineInputBorder(),
+                            ),
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Digite sua senha';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: authService.isLoading ? null : _login,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.brown,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            child: authService.isLoading
+                                ? const CircularProgressIndicator(color: Colors.white)
+                                : const Text(
+                                    'Entrar',
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                          ),
+                          const SizedBox(height: 24),
+                          const Row(
+                            children: [
+                              Expanded(child: Divider()),
+                              Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16),
+                                child: Text('ou'),
+                              ),
+                              Expanded(child: Divider()),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          OutlinedButton.icon(
+                            onPressed: authService.isLoading ? null : _signInWithGoogle,
+                            icon: const Icon(Icons.login, color: Colors.red),
+                            label: const Text(
+                              'Entrar com Google',
+                              style: TextStyle(color: Colors.black87),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              side: const BorderSide(color: Colors.grey),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.of(context).pushNamed('/signup');
+                            },
+                            child: const Text('Não tem conta? Cadastre-se'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              _showResetPasswordDialog();
+                            },
+                            child: const Text('Esqueceu a senha?'),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.of(context).pushNamed('/signup');
-                      },
-                      child: const Text('Não tem conta? Cadastre-se'),
+                  ),
+                  // ADICIONADO: Frase da sua empresa
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 16.0),
+                    child: Text(
+                      'Powered by Ygg',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        _showResetPasswordDialog();
-                      },
-                      child: const Text('Esqueceu a senha?'),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               );
             },
           ),
         ),
+      ),
+    );
+  }
+
+  void _showEmailVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Verificação de Email'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.email,
+              size: 64,
+              color: Colors.brown,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Seu email ainda não foi verificado. Por favor, verifique seu email e clique no link de confirmação.',
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                final authService = Provider.of<AuthService>(context, listen: false);
+                await authService.resendEmailVerification();
+
+                if (mounted) {
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Email de verificação reenviado!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Erro ao reenviar email: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            },
+            child: const Text('Reenviar Email'),
+          ),
+        ],
       ),
     );
   }
