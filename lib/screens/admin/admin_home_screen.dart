@@ -4,6 +4,7 @@ import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../models/usuario.dart';
 import '../../utils/app_constants.dart';
+import '../profissional/profissional_home_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -14,6 +15,7 @@ class AdminHomeScreen extends StatefulWidget {
 
 class _AdminHomeScreenState extends State<AdminHomeScreen> {
   int _currentIndex = 0;
+  bool _isProfissionalView = false;
   final ApiService _apiService = ApiService();
   List<Usuario> _usuarios = [];
   bool _loadingUsuarios = true;
@@ -47,6 +49,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
+    final user = authService.currentUser;
+
+    if (user == null) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final canBeProfissional = user.isProfissional;
 
     final pages = [
       _buildDashboardPage(),
@@ -55,39 +68,60 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Admin - ${authService.currentUser?.nome ?? ''}'),
-        backgroundColor: Colors.brown,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-            tooltip: 'Sair',
-          ),
-        ],
-      ),
-      body: pages[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.brown,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard),
-            label: 'Dashboard',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people),
-            label: 'Equipe',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.analytics),
-            label: 'Relatórios',
-          ),
-        ],
-      ),
+      appBar: !_isProfissionalView
+          ? AppBar(
+              title: Text('Admin - ${user.nome}'),
+              backgroundColor: Colors.brown,
+              foregroundColor: Colors.white,
+              actions: [
+                if (canBeProfissional)
+                  Row(
+                    children: [
+                      const Text('Visão Profissional'),
+                      Switch(
+                        value: _isProfissionalView,
+                        onChanged: (value) {
+                          setState(() {
+                            _isProfissionalView = value;
+                          });
+                        },
+                        activeColor: Colors.white,
+                      ),
+                    ],
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: _logout,
+                  tooltip: 'Sair',
+                ),
+              ],
+            )
+          : null,
+      body: _isProfissionalView && canBeProfissional
+          ? const ProfissionalHomeScreen()
+          : pages[_currentIndex],
+      bottomNavigationBar: !_isProfissionalView
+          ? BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) => setState(() => _currentIndex = index),
+              type: BottomNavigationBarType.fixed,
+              selectedItemColor: Colors.brown,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.dashboard),
+                  label: 'Dashboard',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.people),
+                  label: 'Equipe',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.analytics),
+                  label: 'Relatórios',
+                ),
+              ],
+            )
+          : null,
     );
   }
 
