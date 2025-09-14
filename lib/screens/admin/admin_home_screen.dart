@@ -3,7 +3,12 @@ import 'package:provider/provider.dart';
 import '../../services/auth_service.dart';
 import '../../services/api_service.dart';
 import '../../models/usuario.dart';
+import '../../models/agendamento.dart';
+import '../../models/servico.dart';
+import '../../models/horario_trabalho.dart';
 import '../../utils/app_constants.dart';
+import '../../screens/profissional/profissional_agendamentos_screen.dart';
+import '../client/notificacoes_screen.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -17,11 +22,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   final ApiService _apiService = ApiService();
   List<Usuario> _usuarios = [];
   bool _loadingUsuarios = true;
+  String _filterType = 'todos';
+  bool _isBarberMode = false;
+
+  // Barber mode data
+  List<Agendamento> _agendamentos = [];
+  List<Servico> _servicos = [];
+  List<HorarioTrabalho> _horariosTrabalho = [];
+  bool _loadingAgendamentos = true;
+  bool _loadingServicos = true;
+  bool _loadingHorarios = true;
+  int _unreadNotifications = 0;
 
   @override
   void initState() {
     super.initState();
     _loadUsuarios();
+    _loadNotificationCount();
   }
 
   Future<void> _loadUsuarios() async {
@@ -44,22 +61,145 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
+  Future<void> _loadAgendamentos() async {
+    try {
+      final agendamentos = await _apiService.getMyProfissionalAgendamentos();
+      setState(() {
+        _agendamentos = agendamentos;
+        _loadingAgendamentos = false;
+      });
+    } catch (e) {
+      setState(() => _loadingAgendamentos = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao carregar agendamentos: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadServicos() async {
+    try {
+      final servicos = await _apiService.getMyServicos();
+      setState(() {
+        _servicos = servicos;
+        _loadingServicos = false;
+      });
+    } catch (e) {
+      setState(() => _loadingServicos = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao carregar serviços: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadHorarios() async {
+    try {
+      final horarios = await _apiService.getMyHorariosTrabalho();
+      setState(() {
+        _horariosTrabalho = horarios;
+        _loadingHorarios = false;
+      });
+    } catch (e) {
+      setState(() => _loadingHorarios = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao carregar horários: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadNotificationCount() async {
+    try {
+      final count = await _apiService.getUnreadNotificationsCount();
+      setState(() {
+        _unreadNotifications = count;
+      });
+    } catch (e) {
+      // Ignore errors when loading notification count
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authService = Provider.of<AuthService>(context);
 
-    final pages = [
+    final pages = _isBarberMode ? [
+      const ProfissionalAgendamentosScreen(),
+      _buildServicosPage(),
+      _buildHorariosPage(),
+      _buildConfiguracoesPage(),
+    ] : [
       _buildDashboardPage(),
       _buildEquipePage(),
-      _buildRelatoriosPage(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Admin - ${authService.currentUser?.nome ?? ''}'),
+        title: Text(_isBarberMode
+          ? 'Barbeiro - ${authService.currentUser?.nome ?? ''}'
+          : 'Admin - ${authService.currentUser?.nome ?? ''}'),
         backgroundColor: Colors.brown,
         foregroundColor: Colors.white,
         actions: [
+          if (_isBarberMode) ...[
+            Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications),
+                  onPressed: () async {
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const NotificacoesScreen(),
+                      ),
+                    );
+                    _loadNotificationCount();
+                  },
+                ),
+                if (_unreadNotifications > 0)
+                  Positioned(
+                    right: 11,
+                    top: 11,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 14,
+                        minHeight: 14,
+                      ),
+                      child: Text(
+                        '$_unreadNotifications',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 8,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          IconButton(
+            icon: Icon(_isBarberMode ? Icons.admin_panel_settings : Icons.work),
+            onPressed: _toggleMode,
+            tooltip: _isBarberMode ? 'Modo Admin' : 'Modo Barbeiro',
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: _logout,
@@ -73,7 +213,24 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         onTap: (index) => setState(() => _currentIndex = index),
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Colors.brown,
-        items: const [
+        items: _isBarberMode ? const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today),
+            label: 'Agenda',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.cut),
+            label: 'Serviços',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.schedule),
+            label: 'Horários',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Configurações',
+          ),
+        ] : const [
           BottomNavigationBarItem(
             icon: Icon(Icons.dashboard),
             label: 'Dashboard',
@@ -81,10 +238,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           BottomNavigationBarItem(
             icon: Icon(Icons.people),
             label: 'Equipe',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.analytics),
-            label: 'Relatórios',
           ),
         ],
       ),
@@ -127,17 +280,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   Icons.admin_panel_settings,
                   Colors.red,
                 ),
-                _buildMetricCard(
-                  'Profissionais',
-                  profissionais.toString(),
-                  Icons.work,
-                  Colors.blue,
+                GestureDetector(
+                  onTap: () => _filterAndSwitchToTeam('barbeiros'),
+                  child: _buildMetricCard(
+                    'Barbeiros',
+                    profissionais.toString(),
+                    Icons.work,
+                    Colors.blue,
+                  ),
                 ),
-                _buildMetricCard(
-                  'Clientes',
-                  clientes.toString(),
-                  Icons.person,
-                  Colors.green,
+                GestureDetector(
+                  onTap: () => _filterAndSwitchToTeam('clientes'),
+                  child: _buildMetricCard(
+                    'Clientes',
+                    clientes.toString(),
+                    Icons.person,
+                    Colors.green,
+                  ),
                 ),
               ],
             ),
@@ -207,33 +366,59 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Gestão da Equipe',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.brown,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Gestão da Equipe',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.brown,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilterChip(
+                      label: const Text('Todos'),
+                      selected: _filterType == 'todos',
+                      onSelected: (_) => _setFilter('todos'),
+                    ),
+                    FilterChip(
+                      label: const Text('Barbeiros'),
+                      selected: _filterType == 'barbeiros',
+                      onSelected: (_) => _setFilter('barbeiros'),
+                    ),
+                    FilterChip(
+                      label: const Text('Clientes'),
+                      selected: _filterType == 'clientes',
+                      onSelected: (_) => _setFilter('clientes'),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 16),
             Expanded(
-              child: _usuarios.isEmpty
-                ? const Center(
+              child: _getFilteredUsers().isEmpty
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.people, size: 64, color: Colors.grey),
                         SizedBox(height: 16),
                         Text(
-                          'Nenhum usuário encontrado',
-                          style: TextStyle(color: Colors.grey),
+                          _getEmptyMessage(),
+                          style: const TextStyle(color: Colors.grey),
                         ),
                       ],
                     ),
                   )
                 : ListView.builder(
-                    itemCount: _usuarios.length,
+                    itemCount: _getFilteredUsers().length,
                     itemBuilder: (context, index) {
-                      final usuario = _usuarios[index];
+                      final usuario = _getFilteredUsers()[index];
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
@@ -291,19 +476,60 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
-  Widget _buildRelatoriosPage() {
+  // Barber mode pages
+  Widget _buildServicosPage() {
     return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.analytics, size: 64, color: Colors.grey),
+          Icon(Icons.cut, size: 64, color: Colors.grey),
           SizedBox(height: 16),
           Text(
-            'Relatórios',
+            'Meus Serviços',
             style: TextStyle(fontSize: 18, color: Colors.grey),
           ),
           Text(
-            'Em desenvolvimento...',
+            'Funcionalidade em desenvolvimento...',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHorariosPage() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.schedule, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            'Horários de Trabalho',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+          Text(
+            'Funcionalidade em desenvolvimento...',
+            style: TextStyle(color: Colors.grey),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConfiguracoesPage() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.settings, size: 64, color: Colors.grey),
+          SizedBox(height: 16),
+          Text(
+            'Configurações',
+            style: TextStyle(fontSize: 18, color: Colors.grey),
+          ),
+          Text(
+            'Funcionalidade em desenvolvimento...',
             style: TextStyle(color: Colors.grey),
           ),
         ],
@@ -327,7 +553,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       case AppConstants.roleAdmin:
         return 'Administrador';
       case AppConstants.roleProfissional:
-        return 'Profissional';
+        return 'Barbeiro';
       default:
         return 'Cliente';
     }
@@ -382,24 +608,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      const Text('Profissional'),
-                    ],
-                  ),
-                ),
-                DropdownMenuItem(
-                  value: AppConstants.roleAdmin,
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('Administrador'),
+                      const Text('Barbeiro'),
                     ],
                   ),
                 ),
@@ -454,6 +663,57 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
         );
       }
+    }
+  }
+
+  List<Usuario> _getFilteredUsers() {
+    List<Usuario> nonAdminUsers = _usuarios.where((u) => !u.isAdmin).toList();
+
+    switch (_filterType) {
+      case 'barbeiros':
+        return nonAdminUsers.where((u) => u.isProfissional).toList();
+      case 'clientes':
+        return nonAdminUsers.where((u) => u.isCliente).toList();
+      default:
+        return nonAdminUsers;
+    }
+  }
+
+  String _getEmptyMessage() {
+    switch (_filterType) {
+      case 'barbeiros':
+        return 'Nenhum barbeiro encontrado';
+      case 'clientes':
+        return 'Nenhum cliente encontrado';
+      default:
+        return 'Nenhum usuário encontrado';
+    }
+  }
+
+  void _setFilter(String filterType) {
+    setState(() {
+      _filterType = filterType;
+    });
+  }
+
+  void _filterAndSwitchToTeam(String filterType) {
+    setState(() {
+      _filterType = filterType;
+      _currentIndex = 1; // Switch to team management tab
+    });
+  }
+
+  void _toggleMode() {
+    setState(() {
+      _isBarberMode = !_isBarberMode;
+      _currentIndex = 0; // Reset to first tab when switching modes
+    });
+
+    // Load barber data when switching to barber mode
+    if (_isBarberMode) {
+      _loadAgendamentos();
+      _loadServicos();
+      _loadHorarios();
     }
   }
 

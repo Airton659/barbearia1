@@ -773,7 +773,7 @@ class _ProfissionalHomeScreenState extends State<ProfissionalHomeScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
-                                  'Profissional',
+                                  'Barbeiro',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: Colors.brown[700],
