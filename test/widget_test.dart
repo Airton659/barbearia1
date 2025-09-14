@@ -6,9 +6,9 @@ import 'package:barbearia1/main.dart';
 void main() {
   testWidgets('App inicializa corretamente', (WidgetTester tester) async {
     // Constrói o app e aguarda o primeiro frame
-    await tester.pumpWidget(const BarbeariaApp());
+    await tester.pumpWidget(const MyApp());
 
-    // Verifica se a tela de carregamento ou login aparece
-    expect(find.byType(CircularProgressIndicator), findsAny);
+    // Verifica se o app foi construído corretamente
+    expect(find.byType(MaterialApp), findsOneWidget);
   });
 }

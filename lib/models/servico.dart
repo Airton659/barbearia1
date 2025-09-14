@@ -1,40 +1,41 @@
 class Servico {
   final String id;
   final String nome;
-  final String descricao;
+  final String? descricao;
+  final int duracao; // em minutos
   final double preco;
-  final int duracaoMinutos;
-  final String? imagemUrl;
-  final bool ativo;
   final String profissionalId;
+  final String negocioId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
   Servico({
     required this.id,
     required this.nome,
-    required this.descricao,
+    this.descricao,
+    required this.duracao,
     required this.preco,
-    required this.duracaoMinutos,
-    this.imagemUrl,
-    required this.ativo,
     required this.profissionalId,
+    required this.negocioId,
     required this.createdAt,
     required this.updatedAt,
   });
 
   factory Servico.fromJson(Map<String, dynamic> json) {
     return Servico(
-      id: json['id'],
-      nome: json['nome'],
+      id: json['id'] ?? '',
+      nome: json['nome'] ?? '',
       descricao: json['descricao'],
-      preco: json['preco'].toDouble(),
-      duracaoMinutos: json['duracao_minutos'],
-      imagemUrl: json['imagem_url'],
-      ativo: json['ativo'],
-      profissionalId: json['profissional_id'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      duracao: json['duracao'] ?? json['duracao_minutos'] ?? 0, // Tentar ambos os nomes
+      preco: (json['preco'] as num?)?.toDouble() ?? 0.0,
+      profissionalId: json['profissional_id'] ?? '',
+      negocioId: json['negocio_id'] ?? '',
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
+          : DateTime.now(),
+      updatedAt: json['updated_at'] != null
+          ? DateTime.parse(json['updated_at'])
+          : DateTime.now(),
     );
   }
 
@@ -43,16 +44,24 @@ class Servico {
       'id': id,
       'nome': nome,
       'descricao': descricao,
+      'duracao': duracao,
       'preco': preco,
-      'duracao_minutos': duracaoMinutos,
-      'imagem_url': imagemUrl,
-      'ativo': ativo,
       'profissional_id': profissionalId,
+      'negocio_id': negocioId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
   }
 
-  String get precoFormatado => 'R\$ ${preco.toStringAsFixed(2).replaceAll('.', ',')}';
-  String get duracaoFormatada => '${duracaoMinutos}min';
+  Map<String, dynamic> toCreateJson() {
+    return {
+      'nome': nome,
+      'descricao': descricao,
+      'duracao_minutos': duracao, // API espera 'duracao_minutos'
+      'preco': preco,
+      // Estes campos serão preenchidos automaticamente pela API ou adicionados no service
+      // 'negocio_id': negocioId,
+      // 'profissional_id': profissionalId,
+    };
+  }
 }

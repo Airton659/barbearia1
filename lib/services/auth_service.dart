@@ -1,202 +1,266 @@
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/usuario.dart';
+import '../utils/app_constants.dart';
 import 'api_service.dart';
 
-class AuthService with ChangeNotifier {
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
+class AuthService extends ChangeNotifier {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final ApiService _apiService = ApiService();
+
   Usuario? _currentUser;
-  bool _hasServerError = false;
-  bool _isSyncing = false;
+  bool _isLoading = false;
 
   Usuario? get currentUser => _currentUser;
-  String? get currentUserId => _firebaseAuth.currentUser?.uid;
-  bool get hasServerError => _hasServerError;
-  bool get isSyncing => _isSyncing;
-
-  // Método para atualizar o usuário atual (ex: após consentimento LGPD)
-  void updateCurrentUser(Usuario updatedUser) {
-    _currentUser = updatedUser;
-    notifyListeners();
-  }
+  bool get isLoading => _isLoading;
+  bool get isLoggedIn => _currentUser != null;
 
   AuthService() {
-    try {
-      _firebaseAuth.authStateChanges().listen(_onAuthStateChanged);
-    } catch (e) {
-      // Continua funcionando mesmo com erro do Firebase
-    }
+    _auth.authStateChanges().listen(_onAuthStateChanged);
   }
 
-  Future<void> _onAuthStateChanged(User? firebaseUser) async {
-    if (firebaseUser == null) {
-      _currentUser = null;
+  void _onAuthStateChanged(User? firebaseUser) async {
+    if (firebaseUser != null) {
+      print('🔥 _onAuthStateChanged - usuário logado, buscando perfil atualizado');
+      // ✅ Usar getMyProfile em vez de syncProfile para dados atualizados
+      try {
+        final updatedUser = await _apiService.getMyProfile();
+        print('🔥 _onAuthStateChanged perfil obtido: ${updatedUser.toJson()}');
+        _currentUser = updatedUser;
+        await _saveUserToLocalStorage(updatedUser);
+      } catch (e) {
+        print('🔥 Erro ao obter perfil no login, fazendo fallback para syncProfile: $e');
+        // Fallback para sync se getMyProfile falhar
+        await _syncUserProfile(firebaseUser);
+      }
     } else {
-      await _fetchAndSetUser(firebaseUser);
+      _currentUser = null;
+      await _clearLocalStorage();
     }
     notifyListeners();
   }
 
-  Future<void> _fetchAndSetUser(User firebaseUser) async {
-    // Prevent multiple simultaneous sync calls
-    if (_isSyncing) {
-      return;
-    }
-    
-    _isSyncing = true;
-    notifyListeners(); // Notifica que começou a sincronizar
+  Future<void> _loadUserFromLocalStorage() async {
     try {
-      final apiService = ApiService();
-      
-      // Tenta primeiro buscar o perfil existente
-      try {
-        final usuario = await apiService.getProfile();
-        _currentUser = usuario;
-        _hasServerError = false;
-      } catch (e) {
-        // Se não conseguir buscar, tenta fazer sync
-        final negocioId = await getNegocioId();
-        final syncData = {
-          'nome': firebaseUser.displayName ?? firebaseUser.email ?? 'Usuário Sem Nome',
-          'email': firebaseUser.email,
-          'firebase_uid': firebaseUser.uid,
-          'negocio_id': negocioId,
-        };
-
-        final responseBody = await apiService.syncProfile(syncData);
-        _currentUser = responseBody;
-        _hasServerError = false;
+      final prefs = await SharedPreferences.getInstance();
+      final userJson = prefs.getString('current_user');
+      if (userJson != null) {
+        final userData = Map<String, dynamic>.from(
+          jsonDecode(userJson),
+        );
+        // Verificar se tem a estrutura antiga e limpar se necessário
+        if (userData['role'] != null && userData['roles'] == null) {
+          debugPrint('Limpando dados antigos do localStorage');
+          await prefs.remove('current_user');
+          return;
+        }
+        _currentUser = Usuario.fromJson(userData);
       }
     } catch (e) {
-      // Marcar que há erro no servidor
-      _hasServerError = true;
-      
-      // Criar usuário básico temporário para evitar crash
-      _currentUser = Usuario(
-        id: firebaseUser.uid,
-        firebaseUid: firebaseUser.uid,
-        nome: firebaseUser.displayName ?? firebaseUser.email ?? 'Usuário',
+      debugPrint('Erro ao carregar usuário do storage local: $e');
+      // Em caso de erro, limpar o localStorage
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('current_user');
+    }
+  }
+
+  Future<void> _saveUserToLocalStorage(Usuario user) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('current_user', jsonEncode(user.toJson()));
+    } catch (e) {
+      debugPrint('Erro ao salvar usuário no storage local: $e');
+    }
+  }
+
+  Future<void> _clearLocalStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('current_user');
+    } catch (e) {
+      debugPrint('Erro ao limpar storage local: $e');
+    }
+  }
+
+  Future<void> _syncUserProfile(User firebaseUser) async {
+    try {
+      final usuario = Usuario(
+        id: '',
+        nome: firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'Usuário',
         email: firebaseUser.email ?? '',
-        telefone: null,
-        fotoPerfil: null,
-        role: 'admin', // Role temporária para admin
-        ativo: true,
+        firebaseUid: firebaseUser.uid,
+        roles: {AppConstants.negocioId: AppConstants.roleCliente},
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-    } finally {
-      _isSyncing = false;
-      notifyListeners(); // Notifica que terminou a sincronização
+
+      try {
+        final syncedUser = await _apiService.syncProfile(usuario);
+        _currentUser = syncedUser;
+        await _saveUserToLocalStorage(syncedUser);
+      } catch (apiError) {
+        // Se a API falhar, usar os dados do Firebase
+        _currentUser = usuario;
+        await _saveUserToLocalStorage(usuario);
+      }
+    } catch (e) {
+      // Em caso de erro, criar usuário local temporário
+      _currentUser = Usuario(
+        id: firebaseUser.uid,
+        nome: firebaseUser.displayName ?? firebaseUser.email?.split('@')[0] ?? 'Usuário',
+        email: firebaseUser.email ?? '',
+        firebaseUid: firebaseUser.uid,
+        roles: {AppConstants.negocioId: AppConstants.roleCliente},
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
     }
   }
 
-  Future<UserCredential?> signInWithEmailAndPassword(String email, String password) async {
+  Future<UserCredential> signUp({
+    required String email,
+    required String password,
+    required String nome,
+  }) async {
     try {
-      UserCredential userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+      _isLoading = true;
+      notifyListeners();
+
+      final credential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      rethrow;
-    }
-  }
 
-  Future<void> sendPasswordResetEmail(String email) async {
-    try {
-      await _firebaseAuth.sendPasswordResetEmail(email: email);
-    } on FirebaseAuthException catch (e) {
-      rethrow;
-    }
-  }
-  
-  Future<void> updateFirebaseProfile({String? displayName, String? photoURL}) async {
-    final user = _firebaseAuth.currentUser;
-    if (user != null) {
-      await user.updateProfile(displayName: displayName, photoURL: photoURL);
-      await user.reload(); 
-    }
-  }
-
-  // NOVA FUNÇÃO PARA ALTERAR A SENHA DENTRO DO APP
-  Future<void> changePassword(String currentPassword, String newPassword) async {
-    final user = _firebaseAuth.currentUser;
-    final userEmail = user?.email;
-
-    if (user != null && userEmail != null) {
-      // Reautentica o usuário para garantir que ele é o dono da conta
-      AuthCredential credential = EmailAuthProvider.credential(
-        email: userEmail, 
-        password: currentPassword
-      );
-      await user.reauthenticateWithCredential(credential);
-      
-      // Se a reautenticação for bem-sucedida, atualiza a senha
-      await user.updatePassword(newPassword);
-    } else {
-      throw Exception('Nenhum usuário logado para alterar a senha.');
-    }
-  }
-
-  Future<void> storeNegocioId(String negocioId) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('negocioId', negocioId);
-  }
-
-  Future<String?> getNegocioId() async {
-    const negocioId = "YXcwY5rHdXBNRm4BtsP1"; // ID do negócio da barbearia
-    return negocioId;
-  }
-
-  void updateCurrentUserData(Usuario updatedUser) {
-    _currentUser = updatedUser;
-    notifyListeners();
-  }
-
-  Future<void> refreshCurrentUser() async {
-    // Prevent multiple simultaneous refresh calls
-    if (_isSyncing) {
-      return;
-    }
-    
-    final firebaseUser = _firebaseAuth.currentUser;
-    if (firebaseUser != null) {
-      _isSyncing = true;
-      try {
-        // Usar getProfile diretamente para pegar dados atualizados do banco
-        final apiService = ApiService();
-        final responseBody = await apiService.getProfile();
-        
-        if (responseBody != null) {
-          _currentUser = responseBody;
-        } else {
-          await _fetchAndSetUser(firebaseUser);
-        }
-      } catch (e) {
-        await _fetchAndSetUser(firebaseUser);
-      } finally {
-        _isSyncing = false;
+      if (credential.user != null) {
+        await credential.user!.updateDisplayName(nome);
+        await _syncUserProfile(credential.user!);
       }
-      
+
+      return credential;
+    } catch (e) {
+      debugPrint('Erro no cadastro: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<String?> getIdToken() async {
-    final User? user = _firebaseAuth.currentUser;
-    if (user != null) {
-      final token = await user.getIdToken();
-      return token;
+  Future<UserCredential> signIn({
+    required String email,
+    required String password,
+  }) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      return credential;
+    } catch (e) {
+      debugPrint('Erro no login: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-    return null;
   }
 
   Future<void> signOut() async {
-    _currentUser = null;
-    await _firebaseAuth.signOut();
-    notifyListeners();
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      // Limpar dados primeiro
+      _currentUser = null;
+      await _clearLocalStorage();
+
+      // Depois fazer logout do Firebase
+      await _auth.signOut();
+    } catch (e) {
+      debugPrint('Erro no logout: $e');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
-  Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
+  Future<void> resetPassword(String email) async {
+    try {
+      await _auth.sendPasswordResetEmail(email: email);
+    } catch (e) {
+      debugPrint('Erro ao enviar email de reset: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    final user = _auth.currentUser;
+    if (user == null || user.email == null) {
+      throw Exception('Usuário não está logado ou não possui um email.');
+    }
+
+    try {
+      final cred = EmailAuthProvider.credential(email: user.email!, password: currentPassword);
+      await user.reauthenticateWithCredential(cred);
+      await user.updatePassword(newPassword);
+    } on FirebaseAuthException catch (e) {
+      // Re-lançar a exceção para que a UI possa tratá-la
+      throw e;
+    } catch (e) {
+      debugPrint('Erro ao alterar a senha: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> refreshUser() async {
+    print('🔥 refreshUser chamado - buscando dados atualizados');
+    try {
+      final firebaseUser = _auth.currentUser;
+      if (firebaseUser != null) {
+        final updatedUser = await _apiService.getMyProfile();
+        print('🔥 refreshUser recebeu usuário atualizado: ${updatedUser.toJson()}');
+        _currentUser = updatedUser;
+        await _saveUserToLocalStorage(updatedUser);
+        notifyListeners();
+        print('🔥 refreshUser concluído - UI será atualizada');
+      }
+    } catch (e) {
+      print('🔥 Erro ao atualizar usuário: $e');
+      debugPrint('Erro ao atualizar usuário: $e');
+      rethrow;
+    }
+  }
+
+  String? getAuthErrorMessage(dynamic error) {
+    if (error is FirebaseAuthException) {
+      switch (error.code) {
+        case 'user-not-found':
+          return 'Usuário não encontrado.';
+        case 'wrong-password':
+          return 'Senha incorreta.';
+        case 'email-already-in-use':
+          return 'Este email já está em uso.';
+        case 'weak-password':
+          return 'A senha é muito fraca.';
+        case 'invalid-email':
+          return 'Email inválido.';
+        case 'operation-not-allowed':
+          return 'Operação não permitida.';
+        case 'too-many-requests':
+          return 'Muitas tentativas. Tente novamente mais tarde.';
+        case 'requires-recent-login':
+          return 'Esta operação requer autenticação recente. Faça login novamente.';
+        default:
+          return 'Erro de autenticação: ${error.message}';
+      }
+    }
+    return 'Erro inesperado: $error';
+  }
 }
